@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBP KPI Dashboard</title>
+    <script src="tailwindcss-3.4.16.js"></script>
+    <script src="react.production.min.js"></script>
+    <script src="react-dom.production.min.js"></script>
+    <script src="babel.min.js"></script>
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script> -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script> -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.21.2/babel.min.js"></script> -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            orange: '#f3a540',
+                            blue: '#144cbc',
+                            'orange-50': '#FEF7EC',
+                            'orange-100': '#FDEFD9',
+                            'orange-200': '#FBDFB4',
+                            'orange-300': '#F9CF8F',
+                            'orange-400': '#F7C06A',
+                            'orange-500': '#f3a540',
+                            'orange-600': '#E18D24',
+                            'orange-700': '#BD751E',
+                            'blue-50': '#E6EDF9',
+                            'blue-100': '#CCDBF3',
+                            'blue-200': '#99B7E7',
+                            'blue-300': '#6694DB',
+                            'blue-400': '#3370CF',
+                            'blue-500': '#144cbc',
+                            'blue-600': '#113EA9',
+                            'blue-700': '#0E3495',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Montserrat', 'sans-serif'],
+                        slab: ['Roboto Slab', 'serif']
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            font-family: 'Roboto Slab', serif;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Separate Status Badge Component
+        const StatusBadge = ({ status }) => {
+            const getStatusStyles = () => {
+                switch (status) {
+                    case 'positive': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    case 'negative': return 'bg-red-50 text-red-700 border-red-200';
+                    case 'neutral': return 'bg-amber-50 text-amber-700 border-amber-200';
+                    default: return 'bg-slate-50 text-slate-700 border-slate-200';
+                }
+            };
+
+            const getStatusLabel = () => {
+                switch (status) {
+                    case 'positive': return 'Positive';
+                    case 'negative': return 'Negative';
+                    case 'neutral': return 'Neutral';
+                    default: return 'Unknown';
+                }
+            };
+
+            return (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusStyles()}`}>
+                    {getStatusLabel()}
+                </span>
+            );
+        };
+
+        // Separate Trend Indicator Component
+        const TrendIndicator = ({ trend, isLowerBetter }) => {
+            // Determine if the trend is good or bad based on whether lower is better
+            const isPositiveTrend = (trend === 'up' && !isLowerBetter) || (trend === 'down' && isLowerBetter);
+            const isNegativeTrend = (trend === 'up' && isLowerBetter) || (trend === 'down' && !isLowerBetter);
+
+            const getTrendStyles = () => {
+                if (trend === 'stable') {
+                    return 'text-amber-500'; // Changed from slate to amber for neutral/stable
+                } else if (isPositiveTrend) {
+                    return 'text-emerald-500';
+                } else if (isNegativeTrend) {
+                    return 'text-red-500';
+                }
+                return 'text-slate-500';
+            };
+
+            const getTrendIcon = () => {
+                switch (trend) {
+                    case 'up': return '↑';
+                    case 'down': return '↓';
+                    case 'stable': return '→';
+                    default: return '→';
+                }
+            };
+
+            return (
+                <span className={`ml-1 text-sm font-bold ${getTrendStyles()}`}>
+                    {getTrendIcon()}
+                </span>
+            );
+        };
+
+        // Sparkline Component
+        const Sparkline = ({ data, isLowerBetter }) => {
+            if (!data || data.length < 2) return null;
+
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const range = max - min || 1;
+            const width = 60;
+            const height = 20;
+            const padding = 2; // Padding to avoid cutting off the line
+
+            // Create points for sparkline
+            const points = data.map((value, index) => {
+                const x = (index / (data.length - 1)) * (width - 2 * padding) + padding;
+                // Invert y if lower is better (so downward trends point upward)
+                const y = isLowerBetter
+                    ? height - padding - ((value - min) / range) * (height - 2 * padding)
+                    : padding + ((value - min) / range) * (height - 2 * padding);
+                return `${x},${y}`;
+            }).join(' ');
+
+            // Determine color based on trend direction and whether lower is better
+            const getColor = () => {
+                const firstValue = data[0];
+                const lastValue = data[data.length - 1];
+                const improving = (lastValue > firstValue && !isLowerBetter) ||
+                    (lastValue < firstValue && isLowerBetter);
+
+                return improving ? 'stroke-emerald-500' : 'stroke-red-500';
+            };
+
+            return (
+                <svg width={width} height={height} className="ml-1 inline-block">
+                    <polyline
+                        points={points}
+                        fill="none"
+                        className={`${getColor()} stroke-1`}
+                        strokeWidth="1.5"
+                    />
+                    {/* Add a dot at the last point */}
+                    <circle
+                        cx={width - padding}
+                        cy={isLowerBetter
+                            ? height - padding - ((data[data.length - 1] - min) / range) * (height - 2 * padding)
+                            : padding + ((data[data.length - 1] - min) / range) * (height - 2 * padding)}
+                        r="2"
+                        className={getColor().replace('stroke', 'fill')}
+                    />
+                </svg>
+            );
+        };
+
+        // Progress Bar Component
+        const ProgressBar = ({ value, target, category, isLowerBetter }) => {
+            // Extract numbers for comparison
+            const extractNumber = (str) => {
+                const match = str.match(/[\d.]+/);
+                return match ? parseFloat(match[0]) : 0;
+            };
+
+            const numValue = extractNumber(value);
+            const numTarget = extractNumber(target);
+
+            // Calculate progress percentage
+            const calculateProgress = () => {
+                if (numValue === 0 || numTarget === 0) return 0;
+
+                // For metrics where lower is better
+                if (isLowerBetter) {
+                    // If we've met or exceeded the target (value is lower)
+                    if (numValue <= numTarget) {
+                        return 100; // Full progress
+                    } else {
+                        // Calculate how close we are to target
+                        // For metrics where lower is better, we invert the ratio
+                        return Math.min(100, (numTarget / numValue) * 100);
+                    }
+                } else {
+                    // For metrics where higher is better
+                    if (numValue >= numTarget) {
+                        return 100; // Full progress
+                    } else {
+                        return Math.min(100, (numValue / numTarget) * 100);
+                    }
+                }
+            };
+
+            const progressPercentage = calculateProgress();
+
+            // Determine color based on category
+            const getBarColor = () => {
+                switch (category) {
+                    case 'clinical':
+                        return 'bg-brand-blue';
+                    case 'operational':
+                        return 'bg-brand-blue-400';
+                    case 'financial':
+                        return 'bg-brand-orange';
+                    case 'engagement':
+                        return 'bg-brand-orange-400';
+                    default:
+                        return 'bg-slate-600';
+                }
+            };
+
+            return (
+                <div className="relative pt-1 w-full">
+                    <div className="flex items-center justify-between">
+                        <div className="text-xs font-medium text-slate-500">
+                            {progressPercentage.toFixed(0)}%
+                        </div>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                            className={`h-1.5 rounded-full ${getBarColor()}`}
+                            style={{ width: `${progressPercentage}%` }}
+                        ></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Detail Chart Modal Component
+        const DetailModal = ({ metric, isOpen, onClose }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-medium">{metric.name} - Detailed View</h3>
+                            <button onClick={onClose} className="text-slate-500 hover:text-slate-700">
+                                ✕
+                            </button>
+                        </div>
+                        <div className="mb-4">
+                            <div className="flex mb-2">
+                                <div className="w-1/2">
+                                    <div className="text-sm text-slate-500">Current</div>
+                                    <div className="text-2xl font-semibold">{metric.value}</div>
+                                </div>
+                                <div className="w-1/2">
+                                    <div className="text-sm text-slate-500">Target</div>
+                                    <div className="text-2xl font-semibold">{metric.target}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center mb-2">
+                                <span className="text-sm text-slate-500 mr-2">Status:</span>
+                                <StatusBadge status={metric.status} />
+                            </div>
+                            <div className="flex items-center">
+                                <span className="text-sm text-slate-500 mr-2">Trend:</span>
+                                <TrendIndicator trend={metric.trend} isLowerBetter={metric.lowerIsBetter} />
+                                <span className="ml-2 text-xs text-slate-500">
+                                    {metric.lowerIsBetter ? "Lower is better" : "Higher is better"}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="h-64 bg-slate-50 rounded p-4 border border-slate-200 mb-4">
+                            <div className="text-center text-slate-500">
+                                {/* Placeholder for a full chart that would be implemented with a charting library */}
+                                <div className="flex items-center justify-center h-full">
+                                    <svg width="400" height="200" className="mx-auto">
+                                        {/* Sample chart path */}
+                                        <path
+                                            d={`M 20,180
+                                                L 80,${metric.detailedData ? 180 - metric.detailedData[0] : 150}
+                                                L 140,${metric.detailedData ? 180 - metric.detailedData[1] : 120}
+                                                L 200,${metric.detailedData ? 180 - metric.detailedData[2] : 140}
+                                                L 260,${metric.detailedData ? 180 - metric.detailedData[3] : 90}
+                                                L 320,${metric.detailedData ? 180 - metric.detailedData[4] : 110}
+                                                L 380,${metric.detailedData ? 180 - metric.detailedData[5] : 80}`}
+                                            fill="none"
+                                            stroke="#144cbc"
+                                            strokeWidth="2"
+                                        />
+                                        {/* Target line */}
+                                        <line x1="20" y1="100" x2="380" y2="100" stroke="#f3a540" strokeWidth="1" strokeDasharray="5,5" />
+                                        <text x="20" y="98" fill="#f3a540" fontSize="10">Target</text>
+
+                                        {/* X-axis */}
+                                        <line x1="20" y1="180" x2="380" y2="180" stroke="#94a3b8" strokeWidth="1" />
+                                        <text x="20" y="195" fill="#94a3b8" fontSize="10">Jan</text>
+                                        <text x="80" y="195" fill="#94a3b8" fontSize="10">Feb</text>
+                                        <text x="140" y="195" fill="#94a3b8" fontSize="10">Mar</text>
+                                        <text x="200" y="195" fill="#94a3b8" fontSize="10">Apr</text>
+                                        <text x="260" y="195" fill="#94a3b8" fontSize="10">May</text>
+                                        <text x="320" y="195" fill="#94a3b8" fontSize="10">Jun</text>
+                                        <text x="380" y="195" fill="#94a3b8" fontSize="10">Jul</text>
+
+                                        {/* Y-axis */}
+                                        <line x1="20" y1="20" x2="20" y2="180" stroke="#94a3b8" strokeWidth="1" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="text-sm text-slate-600">
+                            <p className="mb-2"><strong>Analysis:</strong> {metric.analysis || "This metric shows a consistent trend over the last 6 months with recent improvement toward target."}</p>
+                            <p><strong>Recommendation:</strong> {metric.recommendation || "Continue monitoring and maintain current interventions."}</p>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 bg-brand-blue text-white rounded hover:bg-brand-blue-600"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Metric Card Component
+        const MetricCard = ({ metric, category }) => {
+            const [showDetail, setShowDetail] = React.useState(false);
+
+            // Generate sample data for sparkline if not provided
+            const sparklineData = metric.sparklineData || [60, 65, 63, 67, 70, 72]; // Sample trend data
+
+            return (
+                <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-sm font-medium text-slate-700">{metric.name}</h3>
+                        <StatusBadge status={metric.status} />
+                    </div>
+                    <div className="flex items-baseline space-x-2 mb-1">
+                        <span className="text-2xl font-semibold">{metric.value}</span>
+                        <div className="flex items-center">
+                            <TrendIndicator trend={metric.trend} isLowerBetter={metric.lowerIsBetter} />
+                            <Sparkline data={sparklineData} isLowerBetter={metric.lowerIsBetter} />
+                        </div>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-slate-500 mb-2">
+                        <span>Target: {metric.target}</span>
+                        <button
+                            onClick={() => setShowDetail(true)}
+                            className="text-brand-blue hover:text-brand-blue-700 underline"
+                        >
+                            Details
+                        </button>
+                    </div>
+                    <ProgressBar value={metric.value} target={metric.target} category={category} isLowerBetter={metric.lowerIsBetter} />
+
+                    <DetailModal
+                        metric={metric}
+                        isOpen={showDetail}
+                        onClose={() => setShowDetail(false)}
+                    />
+                </div>
+            );
+        };
+
+        // Legend Component
+        const Legend = () => {
+            return (
+                <div className="mb-6 p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <h3 className="text-sm font-medium text-slate-700 mb-2">Legend</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <h4 className="text-xs font-medium text-slate-500 mb-2">Status Indicators</h4>
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                <StatusBadge status="positive" />
+                                <StatusBadge status="neutral" />
+                                <StatusBadge status="negative" />
+                            </div>
+
+                            <h4 className="text-xs font-medium text-slate-500 mb-2">Trend Indicators</h4>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center">
+                                    <span className="text-xs mr-2 w-20">Improving:</span>
+                                    <div className="flex items-center mr-4">
+                                        <TrendIndicator trend="up" isLowerBetter={false} />
+                                        <span className="mx-1 text-xs text-slate-500">(Higher is better)</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <TrendIndicator trend="down" isLowerBetter={true} />
+                                        <span className="mx-1 text-xs text-slate-500">(Lower is better)</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center">
+                                    <span className="text-xs mr-2 w-20">Worsening:</span>
+                                    <div className="flex items-center mr-4">
+                                        <TrendIndicator trend="down" isLowerBetter={false} />
+                                        <span className="mx-1 text-xs text-slate-500">(Higher is better)</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <TrendIndicator trend="up" isLowerBetter={true} />
+                                        <span className="mx-1 text-xs text-slate-500">(Lower is better)</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center">
+                                    <span className="text-xs mr-2 w-20">Stable:</span>
+                                    <TrendIndicator trend="stable" isLowerBetter={false} />
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 className="text-xs font-medium text-slate-500 mb-1">Categories</h4>
+                            <div className="flex flex-wrap gap-2">
+                                <div className="flex items-center mb-1 mr-2">
+                                    <div className="w-3 h-3 rounded-full bg-brand-blue mr-1"></div>
+                                    <span className="text-xs">Clinical</span>
+                                </div>
+                                <div className="flex items-center mb-1 mr-2">
+                                    <div className="w-3 h-3 rounded-full bg-brand-blue-400 mr-1"></div>
+                                    <span className="text-xs">Operational</span>
+                                </div>
+                                <div className="flex items-center mb-1 mr-2">
+                                    <div className="w-3 h-3 rounded-full bg-brand-orange mr-1"></div>
+                                    <span className="text-xs">Financial</span>
+                                </div>
+                                <div className="flex items-center mb-1">
+                                    <div className="w-3 h-3 rounded-full bg-brand-orange-400 mr-1"></div>
+                                    <span className="text-xs">Engagement</span>
+                                </div>
+                            </div>
+
+                            <h4 className="text-xs font-medium text-slate-500 mt-3 mb-1">Sparklines</h4>
+                            <div className="flex items-center mb-1">
+                                <div className="mr-2">
+                                    <Sparkline data={[50, 55, 60, 58, 65, 70]} isLowerBetter={false} />
+                                </div>
+                                <span className="text-xs">Six-month trend</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Dashboard Component
+        const KPIDashboard = () => {
+            // Current date and time in ISO format
+            const now = new Date();
+            const isoDatetime = now.toISOString().split('.')[0] + 'Z';
+
+            // Updated data with additional fields for detailed view and sparklines
+            const metricData = {
+                clinical: [
+                    {
+                        name: 'Readmission Rate',
+                        value: '8.2%',
+                        target: '10%',
+                        trend: 'down',
+                        status: 'positive',
+                        lowerIsBetter: true,
+                        sparklineData: [12, 11, 10.5, 9.8, 9.1, 8.2],
+                        detailedData: [120, 110, 105, 98, 91, 82],
+                        analysis: "Readmission rates have shown consistent improvement over the last 6 months due to improved discharge planning.",
+                        recommendation: "Continue with current discharge planning protocols and care coordination efforts."
+                    },
+                    {
+                        name: 'Care Gap Closure',
+                        value: '76.5%',
+                        target: '80%',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [65, 68, 70, 72, 74, 76.5],
+                        detailedData: [65, 68, 70, 72, 74, 76.5],
+                        analysis: "Care gap closure continues to trend positively toward target.",
+                        recommendation: "Focus on the remaining 3.5% gap to target with targeted outreach."
+                    },
+                    {
+                        name: 'A1C Control',
+                        value: '65.3%',
+                        target: '70%',
+                        trend: 'up',
+                        status: 'neutral',
+                        lowerIsBetter: false,
+                        sparklineData: [60, 62, 63, 64, 64.8, 65.3],
+                        detailedData: [60, 62, 63, 64, 64.8, 65.3],
+                        analysis: "A1C control is showing slow but steady improvement.",
+                        recommendation: "Implement more aggressive intervention for high-risk diabetic patients."
+                    },
+                    {
+                        name: 'Preventative Screening',
+                        value: '82.1%',
+                        target: '85%',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [73, 75, 77, 80, 81.5, 82.1],
+                        detailedData: [73, 75, 77, 80, 81.5, 82.1],
+                        analysis: "Preventative screening rates are approaching target with recent acceleration.",
+                        recommendation: "Continue current outreach and consider incentives for remaining population."
+                    }
+                ],
+                operational: [
+                    {
+                        name: 'Time on Documentation',
+                        value: '28.5%',
+                        target: '25%',
+                        trend: 'up',
+                        status: 'negative',
+                        lowerIsBetter: true,
+                        sparklineData: [26, 26.2, 26.8, 27.5, 28.2, 28.5],
+                        detailedData: [130, 131, 134, 137.5, 141, 142.5],
+                        analysis: "Documentation time continues to increase, moving away from target.",
+                        recommendation: "Identify documentation pain points and consider workflow optimization."
+                    },
+                    {
+                        name: 'Referral Completion',
+                        value: '83.7%',
+                        target: '85%',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [78, 79, 80.5, 82, 83.1, 83.7],
+                        detailedData: [78, 79, 80.5, 82, 83.1, 83.7],
+                        analysis: "Referral completion is trending positively and close to target.",
+                        recommendation: "Continue current interventions with focus on specialty referrals."
+                    },
+                    {
+                        name: 'Avg Length of Stay',
+                        value: '4.2 days',
+                        target: '4.5 days',
+                        trend: 'down',
+                        status: 'positive',
+                        lowerIsBetter: true,
+                        sparklineData: [5.1, 4.9, 4.7, 4.5, 4.3, 4.2],
+                        detailedData: [102, 98, 94, 90, 86, 84],
+                        analysis: "Length of stay is consistently below target, indicating efficient care transitions.",
+                        recommendation: "Maintain current protocols while monitoring readmission rates."
+                    },
+                    {
+                        name: 'Care Coordinator Ratio',
+                        value: '1:120',
+                        target: '1:100',
+                        trend: 'stable',
+                        status: 'negative',
+                        lowerIsBetter: true,
+                        sparklineData: [125, 122, 118, 119, 120, 120],
+                        detailedData: [125, 122, 118, 119, 120, 120],
+                        analysis: "Care coordinator ratio remains above target but has stabilized.",
+                        recommendation: "Develop plan to add additional coordinators or optimize panel distribution."
+                    }
+                ],
+                financial: [
+                    {
+                        name: 'Cost per Patient',
+                        value: '$7,820',
+                        target: '$8,000',
+                        trend: 'down',
+                        status: 'positive',
+                        lowerIsBetter: true,
+                        sparklineData: [8500, 8350, 8200, 8050, 7920, 7820],
+                        detailedData: [106, 104, 102, 100, 99, 97.75],
+                        analysis: "Cost per patient continues to trend favorably below target.",
+                        recommendation: "Document cost-saving initiatives for potential sharing across the organization."
+                    },
+                    {
+                        name: 'Unnecessary Services',
+                        value: '12.3%',
+                        target: '10%',
+                        trend: 'down',
+                        status: 'neutral',
+                        lowerIsBetter: true,
+                        sparklineData: [15, 14.2, 13.8, 13.1, 12.6, 12.3],
+                        detailedData: [150, 142, 138, 131, 126, 123],
+                        analysis: "Unnecessary services are trending in the right direction but still above target.",
+                        recommendation: "Review ordering patterns by provider and implement focused interventions."
+                    },
+                    {
+                        name: 'Low Acuity ED Usage',
+                        value: '18.7%',
+                        target: '15%',
+                        trend: 'stable',
+                        status: 'negative',
+                        lowerIsBetter: true,
+                        sparklineData: [19, 18.9, 18.8, 18.7, 18.7, 18.7],
+                        detailedData: [126, 126, 125, 125, 125, 125],
+                        analysis: "Low acuity ED usage has plateaued above target.",
+                        recommendation: "Evaluate extended hours access and telehealth alternatives."
+                    },
+                    {
+                        name: 'Platform ROI',
+                        value: '3.2x',
+                        target: '3.0x',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [2.7, 2.8, 2.9, 3.0, 3.1, 3.2],
+                        detailedData: [90, 93, 97, 100, 103, 107],
+                        analysis: "Platform ROI exceeds target and continues to show improvement.",
+                        recommendation: "Document use cases with highest ROI for further investment."
+                    }
+                ],
+                engagement: [
+                    {
+                        name: 'System Utilization',
+                        value: '78.5%',
+                        target: '80%',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [70, 72, 74, 75, 77, 78.5],
+                        detailedData: [70, 72, 74, 75, 77, 78.5],
+                        analysis: "System utilization continues to improve and is approaching target.",
+                        recommendation: "Focus on low-utilization user segments with targeted training."
+                    },
+                    {
+                        name: 'Feature Adoption',
+                        value: '67.3%',
+                        target: '70%',
+                        trend: 'up',
+                        status: 'neutral',
+                        lowerIsBetter: false,
+                        sparklineData: [60, 62, 64, 65.5, 66.8, 67.3],
+                        detailedData: [60, 62, 64, 65.5, 66.8, 67.3],
+                        analysis: "Feature adoption is showing steady improvement but still below target.",
+                        recommendation: "Create feature highlight communications and in-app guides for underutilized features."
+                    },
+                    {
+                        name: 'Training Completion',
+                        value: '92.1%',
+                        target: '90%',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [85, 87, 89, 90.5, 91.2, 92.1],
+                        detailedData: [85, 87, 89, 90.5, 91.2, 92.1],
+                        analysis: "Training completion exceeds target with consistent improvement.",
+                        recommendation: "Consider advanced training modules for users who have completed basics."
+                    },
+                    {
+                        name: 'User Satisfaction',
+                        value: '4.2/5',
+                        target: '4.0/5',
+                        trend: 'up',
+                        status: 'positive',
+                        lowerIsBetter: false,
+                        sparklineData: [3.7, 3.8, 3.9, 4.0, 4.1, 4.2],
+                        detailedData: [74, 76, 78, 80, 82, 84],
+                        analysis: "User satisfaction exceeds target and shows consistent positive trend.",
+                        recommendation: "Review user feedback for potential feature enhancements."
+                    }
+                ]
+
+            };
+
+            // Filter metrics based on a simple query param in the URL for demo purposes
+            const [filters, setFilters] = React.useState({
+                status: '',
+                category: ''
+            });
+
+            const handleFilterChange = (type, value) => {
+                setFilters(prev => ({
+                    ...prev,
+                    [type]: prev[type] === value ? '' : value
+                }));
+            };
+
+            // Filter metrics based on selected filters
+            const getFilteredMetrics = (category, metrics) => {
+                return metrics.filter(metric => {
+                    if (filters.status && metric.status !== filters.status) return false;
+                    return true;
+                });
+            };
+
+            return (
+                <div className="min-h-screen">
+                    <div className="bg-brand-blue text-white py-4 shadow-md">
+                        <div className="container mx-auto px-4">
+                            <div className="flex justify-between items-center">
+                                <h1 className="text-xl md:text-2xl font-semibold">Risant VBP KPI Dashboard</h1>
+                                <div className="text-sm">{now.toLocaleDateString()} | Last updated: {isoDatetime}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="container mx-auto p-4">
+                        <div className="flex flex-wrap items-center justify-between mb-6">
+                            <div className="mb-2 md:mb-0">
+                                <h2 className="text-lg font-medium text-slate-800">Performance Metrics</h2>
+                                <p className="text-sm text-slate-500">Track value-based care measures across domains</p>
+                            </div>
+                            <div className="flex space-x-2">
+                                <div className="flex space-x-1">
+                                    <button
+                                        onClick={() => handleFilterChange('status', 'positive')}
+                                        className={`px-3 py-1 text-xs rounded-full border ${filters.status === 'positive'
+                                            ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                    >
+                                        Positive
+                                    </button>
+                                    <button
+                                        onClick={() => handleFilterChange('status', 'neutral')}
+                                        className={`px-3 py-1 text-xs rounded-full border ${filters.status === 'neutral'
+                                            ? 'bg-amber-100 border-amber-300 text-amber-800'
+                                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                    >
+                                        Neutral
+                                    </button>
+                                    <button
+                                        onClick={() => handleFilterChange('status', 'negative')}
+                                        className={`px-3 py-1 text-xs rounded-full border ${filters.status === 'negative'
+                                            ? 'bg-red-100 border-red-300 text-red-800'
+                                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                    >
+                                        Negative
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <Legend />
+
+                        <div className="space-y-8">
+                            {/* Clinical Metrics */}
+                            <div>
+                                <div className="flex items-center mb-3">
+                                    <div className="w-4 h-4 rounded-full bg-brand-blue mr-2"></div>
+                                    <h2 className="text-md font-medium text-slate-800">Clinical Outcomes</h2>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {getFilteredMetrics('clinical', metricData.clinical).map((metric, index) => (
+                                        <MetricCard key={`clinical-${index}`} metric={metric} category="clinical" />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Operational Metrics */}
+                            <div>
+                                <div className="flex items-center mb-3">
+                                    <div className="w-4 h-4 rounded-full bg-brand-blue-400 mr-2"></div>
+                                    <h2 className="text-md font-medium text-slate-800">Operational Efficiency</h2>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {getFilteredMetrics('operational', metricData.operational).map((metric, index) => (
+                                        <MetricCard key={`operational-${index}`} metric={metric} category="operational" />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Financial Metrics */}
+                            <div>
+                                <div className="flex items-center mb-3">
+                                    <div className="w-4 h-4 rounded-full bg-brand-orange mr-2"></div>
+                                    <h2 className="text-md font-medium text-slate-800">Financial Performance</h2>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {getFilteredMetrics('financial', metricData.financial).map((metric, index) => (
+                                        <MetricCard key={`financial-${index}`} metric={metric} category="financial" />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Engagement Metrics */}
+                            <div>
+                                <div className="flex items-center mb-3">
+                                    <div className="w-4 h-4 rounded-full bg-brand-orange-400 mr-2"></div>
+                                    <h2 className="text-md font-medium text-slate-800">System Engagement</h2>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {getFilteredMetrics('engagement', metricData.engagement).map((metric, index) => (
+                                        <MetricCard key={`engagement-${index}`} metric={metric} category="engagement" />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 pt-6 border-t border-slate-200 text-center text-xs text-slate-500">
+                            &copy; 2025 Timothy Martens | VBP Case Study
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(
+            <KPIDashboard />,
+            document.getElementById('root')
+        );
+    </script>
+</body>
+
+</html>
